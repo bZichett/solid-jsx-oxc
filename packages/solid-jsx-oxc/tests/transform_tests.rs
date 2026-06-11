@@ -110,6 +110,36 @@ fn test_dom_style_namespace_binding() {
     assert!(code.contains("props.top"));
 }
 
+#[test]
+fn test_dom_class_list_object_threads_prev() {
+    // The classList object form must thread the previous value (_p$) into the
+    // diffing helper so it can REMOVE keys that flip false, not just add the
+    // truthy ones. Regression: without prev, `classList(el, value)` left two
+    // items highlighted because the old `--active` class was never cleared.
+    let code = transform_dom(r#"<div classList={{ active: props.value === x }} />"#);
+    assert!(code.contains("classList"), "expected classList helper:\n{code}");
+    // Effect arrow must take a prev param AND pass it as the helper's 3rd arg.
+    assert!(
+        code.contains("_p$ =>") || code.contains("(_p$) =>"),
+        "classList effect must be a one-param arrow (_p$ => …):\n{code}"
+    );
+    assert!(
+        code.contains(", _p$)"),
+        "classList(...) must receive _p$ as its prev (3rd) argument:\n{code}"
+    );
+}
+
+#[test]
+fn test_dom_style_object_threads_prev() {
+    // Same prev-threading requirement for the object `style` diffing helper.
+    let code = transform_dom(r#"<div style={{ color: c() }} />"#);
+    assert!(code.contains("style"), "expected style helper:\n{code}");
+    assert!(
+        code.contains(", _p$)"),
+        "style(...) must receive _p$ as its prev (3rd) argument:\n{code}"
+    );
+}
+
 // ============================================================================
 // DOM: Event Handlers
 // ============================================================================

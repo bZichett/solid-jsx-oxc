@@ -84,6 +84,30 @@ fn arrow_zero_params_body<'a>(
     ast.expression_arrow_function(span, true, false, NONE, params, NONE, body)
 }
 
+/// `(_p$) => expr` — used for the diffing helpers (`classList`/`style`) so the
+/// effect threads its previous return value back in as `prev`, letting them
+/// remove keys that flipped false (not just add the truthy ones).
+fn arrow_one_param_body<'a>(
+    ast: AstBuilder<'a>,
+    span: Span,
+    param: &str,
+    expr: Expression<'a>,
+) -> Expression<'a> {
+    let binding = ast.binding_pattern_binding_identifier(span, ast.allocator.alloc_str(param));
+    let params = ast.alloc_formal_parameters(
+        span,
+        FormalParameterKind::ArrowFormalParameters,
+        ast.vec1(ast.plain_formal_parameter(span, binding)),
+        NONE,
+    );
+    let mut statements = ast.vec_with_capacity(1);
+    statements.push(Statement::ExpressionStatement(
+        ast.alloc_expression_statement(span, expr),
+    ));
+    let body = ast.alloc_function_body(span, ast.vec(), statements);
+    ast.expression_arrow_function(span, true, false, NONE, params, NONE, body)
+}
+
 pub fn build_dom_output_expr<'a>(
     result: &TransformResult<'a>,
     context: &BlockContext<'a>,
@@ -154,9 +178,14 @@ pub fn build_dom_output_expr<'a>(
             ));
         }
 
-        // Dynamic bindings (effect(() => setter))
+        // Dynamic bindings. The diffing helpers (classList/style) need the
+        // previous value threaded back so they can remove keys that flip false:
+        //   _$effect((_p$) => _$classList(_el$, {...}, _p$))
+        // Overwriting helpers (setAttribute/className) don't, so they stay
+        // `_$effect(() => setter)`.
         for binding in &result.dynamics {
             context.register_helper("effect");
+            let needs_prev = binding.key == "classList" || binding.key == "style";
             if binding.key == "style" {
                 context.register_helper("style");
             } else if binding.key == "classList" {
@@ -165,9 +194,14 @@ pub fn build_dom_output_expr<'a>(
                 context.register_helper("setAttribute");
             }
 
-            let setter = crate::template::generate_set_attr_expr(ast, gen_span, binding);
+            let prev_name = if needs_prev { Some("_p$") } else { None };
+            let setter = crate::template::generate_set_attr_expr(ast, gen_span, binding, prev_name);
             let effect = ident_expr(ast, gen_span, "effect");
-            let arrow = arrow_zero_params_body(ast, gen_span, setter);
+            let arrow = if needs_prev {
+                arrow_one_param_body(ast, gen_span, "_p$", setter)
+            } else {
+                arrow_zero_params_body(ast, gen_span, setter)
+            };
             let effect_call = call_expr(ast, gen_span, effect, [arrow]);
             statements.push(Statement::ExpressionStatement(
                 ast.alloc_expression_statement(gen_span, effect_call),

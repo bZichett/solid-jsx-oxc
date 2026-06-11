@@ -42,6 +42,12 @@ pub fn generate_set_attr_expr<'a>(
     ast: AstBuilder<'a>,
     span: Span,
     binding: &DynamicBinding<'a>,
+    // Name of the previous-value identifier to thread as the 3rd arg of the
+    // diffing helpers (`classList`/`style`). Without it those helpers see an
+    // empty `prev` every run and can ADD truthy keys but never REMOVE ones that
+    // flip false — leaving e.g. two list items highlighted. `None` for helpers
+    // that overwrite (setAttribute/className) and don't need a prev.
+    prev: Option<&str>,
 ) -> Expression<'a> {
     let key = binding.key.as_str();
     let elem = ident_expr(ast, span, &binding.elem);
@@ -70,22 +76,30 @@ pub fn generate_set_attr_expr<'a>(
 
     if key == "style" {
         let callee = ident_expr(ast, span, "style");
+        let mut args = ast.vec_from_array([elem.into(), value.into()]);
+        if let Some(p) = prev {
+            args.push(ident_expr(ast, span, p).into());
+        }
         return ast.expression_call(
             span,
             callee,
             None::<oxc_ast::ast::TSTypeParameterInstantiation<'a>>,
-            ast.vec_from_array([elem.into(), value.into()]),
+            args,
             false,
         );
     }
 
     if key == "classList" {
         let callee = ident_expr(ast, span, "classList");
+        let mut args = ast.vec_from_array([elem.into(), value.into()]);
+        if let Some(p) = prev {
+            args.push(ident_expr(ast, span, p).into());
+        }
         return ast.expression_call(
             span,
             callee,
             None::<oxc_ast::ast::TSTypeParameterInstantiation<'a>>,
-            ast.vec_from_array([elem.into(), value.into()]),
+            args,
             false,
         );
     }

@@ -113,6 +113,29 @@ fn arrow_zero_params_return_expr<'a>(
     ast.expression_arrow_function(SPAN, true, false, NONE, params, NONE, body)
 }
 
+/// `(_p$) => expr` — for the object `style` diffing helper, so the effect
+/// threads its previous return back in as `prev` and style() can remove
+/// properties that disappear between renders (same fix as classList).
+fn arrow_one_param_return_expr<'a>(
+    ast: AstBuilder<'a>,
+    param: &str,
+    expr: Expression<'a>,
+) -> Expression<'a> {
+    let binding = ast.binding_pattern_binding_identifier(SPAN, ast.allocator.alloc_str(param));
+    let params = ast.alloc_formal_parameters(
+        SPAN,
+        FormalParameterKind::ArrowFormalParameters,
+        ast.vec1(ast.plain_formal_parameter(SPAN, binding)),
+        NONE,
+    );
+    let mut statements = ast.vec_with_capacity(1);
+    statements.push(Statement::ExpressionStatement(
+        ast.alloc_expression_statement(SPAN, expr),
+    ));
+    let body = ast.alloc_function_body(SPAN, ast.vec(), statements);
+    ast.expression_arrow_function(SPAN, true, false, NONE, params, NONE, body)
+}
+
 fn expression_to_assignment_target<'a>(expr: Expression<'a>) -> Option<AssignmentTarget<'a>> {
     match expr {
         Expression::Identifier(ident) => Some(AssignmentTarget::AssignmentTargetIdentifier(ident)),
@@ -871,17 +894,25 @@ fn transform_style<'a>(
                 // Dynamic style - use style helper
                 let elem_id = elem_id.expect("style helper requires an element id");
                 context.register_helper("style");
-                let elem = ident_expr(ast, attr.span, elem_id);
-                let style = ident_expr(ast, attr.span, "style");
-                let call = call_expr(ast, attr.span, style, [elem, context.clone_expr(expr)]);
                 if is_dynamic(expr) {
                     context.register_helper("effect");
-                    let arrow = arrow_zero_params_return_expr(ast, attr.span, call);
+                    // (_p$) => style(el, value, _p$) — thread the previous value so
+                    // style() removes properties that disappear between renders,
+                    // not just adds new ones (the classList bug in object form).
+                    let elem = ident_expr(ast, attr.span, elem_id);
+                    let style = ident_expr(ast, attr.span, "style");
+                    let prev = ident_expr(ast, attr.span, "_p$");
+                    let call =
+                        call_expr(ast, attr.span, style, [elem, context.clone_expr(expr), prev]);
+                    let arrow = arrow_one_param_return_expr(ast, "_p$", call);
                     let effect = ident_expr(ast, attr.span, "effect");
                     result
                         .exprs
                         .push(call_expr(ast, attr.span, effect, [arrow]));
                 } else {
+                    let elem = ident_expr(ast, attr.span, elem_id);
+                    let style = ident_expr(ast, attr.span, "style");
+                    let call = call_expr(ast, attr.span, style, [elem, context.clone_expr(expr)]);
                     result.exprs.push(call);
                 }
             }
