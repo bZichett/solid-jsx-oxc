@@ -73,6 +73,24 @@ fn test_dom_dynamic_class() {
 }
 
 #[test]
+fn test_dom_dynamic_attr_uses_helper_not_dom_method() {
+    // Dynamic attributes must go through the dom-expressions helper
+    // `setAttribute(el, name, value)` which REMOVES the attribute when the
+    // value is null/undefined. The raw DOM method `el.setAttribute(...)`
+    // coerces undefined to the string "undefined" (e.g. aria-label="undefined").
+    let code = transform_dom(r#"<button aria-label={cond() ? "x" : undefined}>go</button>"#);
+    assert!(
+        code.contains(r#"setAttribute(_el$1, "aria-label""#)
+            || code.contains(r#"setAttribute(_el$, "aria-label""#),
+        "expected helper call setAttribute(el, name, value):\n{code}"
+    );
+    assert!(
+        !code.contains(".setAttribute("),
+        "must not call the raw DOM method:\n{code}"
+    );
+}
+
+#[test]
 fn test_dom_dynamic_multiple_attrs() {
     let code = transform_dom(r#"<div class={cls()} id={id()}>content</div>"#);
     assert!(code.contains("cls()"));
@@ -137,6 +155,44 @@ fn test_dom_style_object_threads_prev() {
     assert!(
         code.contains(", _p$)"),
         "style(...) must receive _p$ as its prev (3rd) argument:\n{code}"
+    );
+}
+
+// ============================================================================
+// DOM: JSX text whitespace
+// ============================================================================
+
+#[test]
+fn test_dom_text_keeps_same_line_space_after_element() {
+    // A same-line space between an inline element and trailing text is
+    // significant per JSX rules — only whitespace runs containing a newline
+    // collapse away. Regression: `<code>plan</code> — tour` rendered as
+    // `plan— tour` because the trailing newline made trim strip the leading
+    // space of the first line too.
+    let code = transform_dom("<h1>\n  <code>plan</code> — tour\n</h1>");
+    assert!(
+        code.contains("</code> — tour"),
+        "space after </code> must survive:\n{code}"
+    );
+}
+
+#[test]
+fn test_dom_text_keeps_same_line_space_after_expression() {
+    // `{n} skipped` followed by a newline must keep the space before "skipped".
+    let code = transform_dom("<span>\n  {a} commands · {b} skipped\n  {c}\n</span>");
+    assert!(
+        code.contains(" skipped"),
+        "space between expression and text must survive:\n{code}"
+    );
+}
+
+#[test]
+fn test_dom_text_multiline_indentation_still_collapses() {
+    // Pure indentation/newline runs still collapse to a single joining space.
+    let code = transform_dom("<p>\n  hello\n  world\n</p>");
+    assert!(
+        code.contains("hello world"),
+        "multi-line text should join with single spaces:\n{code}"
     );
 }
 

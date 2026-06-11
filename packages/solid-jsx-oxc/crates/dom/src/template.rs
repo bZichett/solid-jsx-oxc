@@ -56,13 +56,16 @@ pub fn generate_set_attr_expr<'a>(
     // Handle special cases
     if key == "class" || key == "className" {
         if binding.is_svg {
-            let set_attr = static_member(ast, span, elem, "setAttribute");
+            // Use the dom-expressions helper (removes the attribute when the
+            // value is null/undefined) — never the raw DOM method, which would
+            // stringify undefined into `class="undefined"`.
+            let callee = ident_expr(ast, span, "setAttribute");
             let name = ast.expression_string_literal(span, ast.allocator.alloc_str("class"), None);
             return ast.expression_call(
                 span,
-                set_attr,
+                callee,
                 None::<oxc_ast::ast::TSTypeParameterInstantiation<'a>>,
-                ast.vec_from_array([name.into(), value.into()]),
+                ast.vec_from_array([elem.into(), name.into(), value.into()]),
                 false,
             );
         }
@@ -120,13 +123,17 @@ pub fn generate_set_attr_expr<'a>(
         return ast.expression_identifier(span, "undefined");
     }
 
-    let set_attr = static_member(ast, span, elem, "setAttribute");
+    // Generic dynamic attribute: call the imported dom-expressions helper
+    // `setAttribute(el, name, value)` — it REMOVES the attribute when the
+    // value is null/undefined. The raw DOM method would coerce undefined to
+    // the string "undefined" (e.g. aria-label="undefined").
+    let callee = ident_expr(ast, span, "setAttribute");
     let name = ast.expression_string_literal(span, ast.allocator.alloc_str(key), None);
     ast.expression_call(
         span,
-        set_attr,
+        callee,
         None::<oxc_ast::ast::TSTypeParameterInstantiation<'a>>,
-        ast.vec_from_array([name.into(), value.into()]),
+        ast.vec_from_array([elem.into(), name.into(), value.into()]),
         false,
     )
 }

@@ -748,10 +748,12 @@ fn transform_attr<'a>(
             context.register_helper("effect");
             context.register_helper("setAttribute");
             let elem = ident_expr(ast, attr.span, elem_id);
-            let set_attr = static_member(ast, attr.span, elem, "setAttribute");
+            // dom-expressions helper form: setAttribute(el, name, value) —
+            // removes the attribute on null/undefined instead of stringifying.
+            let set_attr = ident_expr(ast, attr.span, "setAttribute");
             let name =
                 ast.expression_string_literal(SPAN, ast.allocator.alloc_str(attr_name), None);
-            let call = call_expr(ast, attr.span, set_attr, [name, context.clone_expr(expr)]);
+            let call = call_expr(ast, attr.span, set_attr, [elem, name, context.clone_expr(expr)]);
             let arrow = arrow_zero_params_return_expr(ast, attr.span, call);
             let effect = ident_expr(ast, attr.span, "effect");
             result

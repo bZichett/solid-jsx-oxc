@@ -70,29 +70,32 @@ pub fn escape_html(text: &str, quote_escape: bool) -> String {
 
 /// Trim whitespace from JSX text (preserving significant spaces)
 ///
-/// JSX whitespace rules:
-/// - Text with newlines: trim leading/trailing whitespace (indentation)
-/// - Inline text (no newlines): preserve trailing space (e.g., ". " between expressions)
-/// - Multiple whitespace collapses to single space
+/// Mirrors dom-expressions' `trimWhitespace` (babel-plugin-jsx-dom-expressions):
+/// - Text with newlines: drop whitespace-only lines, strip leading indentation
+///   of every line AFTER the first, join with a space. Crucially, a same-line
+///   leading space on the FIRST line survives (e.g. `</code> — text` keeps
+///   the space between the element and the text).
+/// - Inline text (no newlines): preserved as-is apart from collapsing.
+/// - Runs of whitespace collapse to a single space.
 pub fn trim_whitespace(text: &str) -> String {
-    let has_newline = text.contains('\n');
+    let text = text.replace('\r', "");
 
-    // Collapse multiple whitespace into single space
+    let joined = if text.contains('\n') {
+        text.split('\n')
+            .enumerate()
+            .map(|(i, line)| if i > 0 { line.trim_start() } else { line })
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        text
+    };
+
+    // Collapse runs of whitespace into single spaces
     let mut result = String::new();
     let mut prev_was_space = false;
-
-    for c in text.chars() {
+    for c in joined.chars() {
         if c.is_whitespace() {
-            if has_newline {
-                // Ignore leading indentation/newlines; we'll trim later.
-                if !prev_was_space && !result.is_empty() {
-                    result.push(' ');
-                    prev_was_space = true;
-                }
-                continue;
-            }
-
-            // Inline text: preserve a single leading space (e.g., " Click" after an element)
             if !prev_was_space {
                 result.push(' ');
                 prev_was_space = true;
@@ -102,14 +105,7 @@ pub fn trim_whitespace(text: &str) -> String {
             prev_was_space = false;
         }
     }
-
-    // Only trim if text contained newlines (multi-line JSX text with indentation)
-    // Preserve trailing space for inline text like ". " between expressions
-    if has_newline {
-        result.trim().to_string()
-    } else {
-        result
-    }
+    result
 }
 
 /// Convert event name from JSX format (onClick or on:click) to DOM format (click)
